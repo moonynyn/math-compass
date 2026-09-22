@@ -13,8 +13,15 @@ server (e.g. `python3 -m http.server`).
   snapped perfectly straight (like tracing a real ruler).
 - **Protractor** — a draggable, rotatable 0°–180° protractor. Drag from its
   center point to draw a ray and read the live angle measurement.
-- **Compass** — click to set the center and drag out to set the radius.
-  Release without sweeping for a full circle, or sweep sideways to draw an
-  arc following the sweep, just like a physical compass.
+- **Compass** — modeled after a real drafting compass. Drag the needle tip to
+  move it, drag the pencil tip to set the opening, then press **Lock** to fix
+  the radius. Once locked, drag the pencil to aim without marking anything,
+  then drag the top handle to swing it and ink the arc it sweeps (release
+  after a near-full turn for a complete circle).
+- **Image** — click **Add Image** to place a photo on the canvas. Drag its
+  body to move it, the corner handles to resize it, the top handle to rotate
+  it, and **Crop** to trim it to a rectangle. Any other tool draws right on
+  top of it. Select an image and press **Delete** (or the Delete/Backspace
+  key) to remove it.
 
 Undo with the toolbar button or Ctrl/Cmd+Z; Clear wipes the canvas.

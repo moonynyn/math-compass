@@ -12,6 +12,17 @@
   const undoBtn = document.getElementById('undoBtn');
   const clearBtn = document.getElementById('clearBtn');
 
+  const compassContextGroup = document.getElementById('compass-context');
+  const lockBtn = document.getElementById('lockBtn');
+  const lockBtnLabel = document.getElementById('lockBtnLabel');
+
+  const imageContextGroup = document.getElementById('image-context');
+  const addImageBtn = document.getElementById('addImageBtn');
+  const cropBtn = document.getElementById('cropBtn');
+  const cropBtnLabel = document.getElementById('cropBtnLabel');
+  const deleteImageBtn = document.getElementById('deleteImageBtn');
+  const imageFileInput = document.getElementById('imageFileInput');
+
   const PX_PER_CM = 32;
 
   let activeTool = 'pencil';
@@ -23,8 +34,15 @@
 
   const ruler = { x: 0, y: 0, angle: 0, length: 20 * PX_PER_CM, width: 2.6 * PX_PER_CM, placed: false };
   const protractor = { x: 0, y: 0, angle: 0, radius: 7 * PX_PER_CM, placed: false };
+  const compass = { x: 0, y: 0, angle: 0, radius: 2 * PX_PER_CM, locked: false, placed: false };
+
+  let nextImageId = 1;
+  let selectedImageId = null;
+  let cropMode = false;
+  let cropSel = null;
 
   const drag = { mode: null, tool: null };
+  let sweepState = null;
 
   const hints = {
     pencil: 'Pencil selected — draw freely on the canvas.',
@@ -32,7 +50,8 @@
     line: 'Line tool — click and drag to draw a straight segment.',
     ruler: 'Ruler — drag the body to move it, the round handle to rotate it, and drag along an edge to draw a snapped line.',
     protractor: 'Protractor — drag the body to move it, the handle to rotate it, then drag from the center point to draw a ray and read the angle.',
-    compass: 'Compass — click the center, drag out to set the radius. Sweep sideways to draw an arc, or release without sweeping for a full circle.'
+    compass: 'Compass — drag the needle to move it, drag the pencil tip to set the opening, then press Lock. Once locked, drag the pencil to aim, and drag the top handle to swing an arc and mark the paper.',
+    image: 'Image — click "Add Image" to place a photo, drag it to move, use the corner handles to resize, the top handle to rotate, or Crop to trim it.'
   };
 
   function setHint(tool) {
@@ -58,6 +77,11 @@
       protractor.x = rect.width / 2;
       protractor.y = rect.height / 2 + 60;
       protractor.placed = true;
+    }
+    if (!compass.placed) {
+      compass.x = rect.width / 2 - 160;
+      compass.y = rect.height / 2 - 120;
+      compass.placed = true;
     }
     renderMain();
     renderOverlay();
@@ -108,10 +132,25 @@
     context.globalCompositeOperation = 'source-over';
   }
 
+  function drawImageShape(context, shape) {
+    context.save();
+    context.translate(shape.cx, shape.cy);
+    context.rotate(shape.angle);
+    context.drawImage(
+      shape.img,
+      shape.crop.sx, shape.crop.sy, shape.crop.sw, shape.crop.sh,
+      -shape.w / 2, -shape.h / 2, shape.w, shape.h
+    );
+    context.restore();
+  }
+
   function renderMain() {
     const { w, h } = getCanvasSize();
     ctx.clearRect(0, 0, w, h);
-    for (const shape of shapes) strokeShape(ctx, shape);
+    for (const shape of shapes) {
+      if (shape.type === 'image') drawImageShape(ctx, shape);
+      else strokeShape(ctx, shape);
+    }
     if (currentPath) strokeShape(ctx, currentPath);
   }
 
@@ -292,6 +331,278 @@
     return deg;
   }
 
+  // ---------- compass ----------
+
+  function compassPencilTip() {
+    return { x: compass.x + compass.radius * Math.cos(compass.angle), y: compass.y + compass.radius * Math.sin(compass.angle) };
+  }
+
+  function compassHinge() {
+    const p = compassPencilTip();
+    const mx = (compass.x + p.x) / 2, my = (compass.y + p.y) / 2;
+    const dx = p.x - compass.x, dy = p.y - compass.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const perpx = -dy / len, perpy = dx / len;
+    const offset = Math.min(100, Math.max(34, compass.radius * 0.5));
+    return { x: mx + perpx * offset, y: my + perpy * offset };
+  }
+
+  function drawCompass() {
+    const p = compassPencilTip();
+    const h = compassHinge();
+
+    octx.save();
+    octx.strokeStyle = '#64748b';
+    octx.lineWidth = 4;
+    octx.lineCap = 'round';
+    octx.beginPath();
+    octx.moveTo(h.x, h.y);
+    octx.lineTo(compass.x, compass.y);
+    octx.stroke();
+    octx.beginPath();
+    octx.moveTo(h.x, h.y);
+    octx.lineTo(p.x, p.y);
+    octx.stroke();
+
+    octx.beginPath();
+    octx.arc(compass.x, compass.y, 5, 0, Math.PI * 2);
+    octx.fillStyle = '#0f172a';
+    octx.fill();
+    octx.strokeStyle = '#0f172a';
+    octx.lineWidth = 1.5;
+    octx.beginPath();
+    octx.moveTo(compass.x - 9, compass.y);
+    octx.lineTo(compass.x + 9, compass.y);
+    octx.moveTo(compass.x, compass.y - 9);
+    octx.lineTo(compass.x, compass.y + 9);
+    octx.stroke();
+
+    octx.beginPath();
+    octx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+    octx.fillStyle = color;
+    octx.fill();
+    octx.strokeStyle = '#1e293b';
+    octx.lineWidth = 1;
+    octx.stroke();
+
+    octx.beginPath();
+    octx.arc(h.x, h.y, 10, 0, Math.PI * 2);
+    octx.fillStyle = compass.locked ? '#16a34a' : '#94a3b8';
+    octx.fill();
+    octx.strokeStyle = '#fff';
+    octx.lineWidth = 2;
+    octx.stroke();
+
+    octx.fillStyle = '#0f172a';
+    octx.font = 'bold 12px sans-serif';
+    octx.textAlign = 'left';
+    octx.fillText(
+      `r = ${(compass.radius / PX_PER_CM).toFixed(1)} cm  ·  ${compass.locked ? 'locked, drag handle to mark' : 'unlocked, drag pencil to set opening'}`,
+      compass.x + 14, compass.y - 14
+    );
+    octx.restore();
+  }
+
+  function hitTestCompass(px, py) {
+    const p = compassPencilTip();
+    const h = compassHinge();
+    if (dist(px, py, compass.x, compass.y) < 14) return { mode: 'move-compass' };
+    if (compass.locked && dist(px, py, h.x, h.y) < 14) return { mode: 'draw-compass' };
+    if (dist(px, py, p.x, p.y) < 14) return { mode: compass.locked ? 'aim-pencil' : 'adjust-radius' };
+    return null;
+  }
+
+  // ---------- image tools ----------
+
+  function findImage(id) {
+    return shapes.find(s => s.type === 'image' && s.id === id);
+  }
+
+  const OPPOSITE_CORNER = { tl: 'br', tr: 'bl', br: 'tl', bl: 'tr' };
+
+  function imageCornersWorld(img) {
+    const { cx, cy, angle, w, h } = img;
+    return [
+      { key: 'tl', ...toWorld(-w / 2, -h / 2, cx, cy, angle) },
+      { key: 'tr', ...toWorld(w / 2, -h / 2, cx, cy, angle) },
+      { key: 'br', ...toWorld(w / 2, h / 2, cx, cy, angle) },
+      { key: 'bl', ...toWorld(-w / 2, h / 2, cx, cy, angle) }
+    ];
+  }
+
+  function cropCornersWorld(img) {
+    const { cx, cy, angle, w, h } = img;
+    const x0 = -w / 2 + cropSel.x, y0 = -h / 2 + cropSel.y;
+    const x1 = x0 + cropSel.w, y1 = y0 + cropSel.h;
+    return [
+      { key: 'tl', ...toWorld(x0, y0, cx, cy, angle) },
+      { key: 'tr', ...toWorld(x1, y0, cx, cy, angle) },
+      { key: 'br', ...toWorld(x1, y1, cx, cy, angle) },
+      { key: 'bl', ...toWorld(x0, y1, cx, cy, angle) }
+    ];
+  }
+
+  function drawHandleSquare(x, y, fill) {
+    octx.fillStyle = fill;
+    octx.fillRect(x - 6, y - 6, 12, 12);
+    octx.strokeStyle = '#fff';
+    octx.lineWidth = 1.5;
+    octx.strokeRect(x - 6, y - 6, 12, 12);
+  }
+
+  function drawImageHandles() {
+    const img = findImage(selectedImageId);
+    if (!img) return;
+    const { cx, cy, angle, w, h } = img;
+
+    octx.save();
+    octx.translate(cx, cy);
+    octx.rotate(angle);
+    octx.strokeStyle = '#2563eb';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([6, 4]);
+    octx.strokeRect(-w / 2, -h / 2, w, h);
+    octx.setLineDash([]);
+    octx.restore();
+
+    if (cropMode && cropSel) {
+      octx.save();
+      octx.translate(cx, cy);
+      octx.rotate(angle);
+      octx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+      octx.beginPath();
+      octx.rect(-w / 2, -h / 2, w, h);
+      octx.rect(-w / 2 + cropSel.x, -h / 2 + cropSel.y, cropSel.w, cropSel.h);
+      octx.fill('evenodd');
+      octx.strokeStyle = '#f59e0b';
+      octx.lineWidth = 2;
+      octx.strokeRect(-w / 2 + cropSel.x, -h / 2 + cropSel.y, cropSel.w, cropSel.h);
+      octx.restore();
+      cropCornersWorld(img).forEach(c => drawHandleSquare(c.x, c.y, '#f59e0b'));
+    } else {
+      imageCornersWorld(img).forEach(c => drawHandleSquare(c.x, c.y, '#2563eb'));
+      const topMid = toWorld(0, -h / 2, cx, cy, angle);
+      const rh = toWorld(0, -h / 2 - 26, cx, cy, angle);
+      octx.beginPath();
+      octx.moveTo(topMid.x, topMid.y);
+      octx.lineTo(rh.x, rh.y);
+      octx.strokeStyle = '#2563eb';
+      octx.lineWidth = 1.5;
+      octx.stroke();
+      octx.beginPath();
+      octx.arc(rh.x, rh.y, 8, 0, Math.PI * 2);
+      octx.fillStyle = '#2563eb';
+      octx.fill();
+      octx.strokeStyle = '#fff';
+      octx.lineWidth = 2;
+      octx.stroke();
+    }
+  }
+
+  function hitTestImages(px, py) {
+    const selImg = findImage(selectedImageId);
+    if (selImg) {
+      if (cropMode) {
+        for (const c of cropCornersWorld(selImg)) {
+          if (dist(px, py, c.x, c.y) < 11) return { mode: 'crop-' + c.key, img: selImg };
+        }
+      } else {
+        const rh = toWorld(0, -selImg.h / 2 - 26, selImg.cx, selImg.cy, selImg.angle);
+        if (dist(px, py, rh.x, rh.y) < 11) return { mode: 'rotate-image', img: selImg };
+        for (const c of imageCornersWorld(selImg)) {
+          if (dist(px, py, c.x, c.y) < 11) return { mode: 'resize-' + c.key, img: selImg };
+        }
+      }
+    }
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (s.type !== 'image') continue;
+      const local = toLocal(px, py, s.cx, s.cy, s.angle);
+      if (Math.abs(local.x) <= s.w / 2 && Math.abs(local.y) <= s.h / 2) return { mode: 'move-image', img: s };
+    }
+    return null;
+  }
+
+  function enterCropMode() {
+    const img = findImage(selectedImageId);
+    if (!img) return;
+    cropMode = true;
+    cropSel = { x: 0, y: 0, w: img.w, h: img.h };
+    updateContextualControls();
+    renderOverlay();
+  }
+
+  function applyCropMode() {
+    const img = findImage(selectedImageId);
+    if (img && cropSel && cropSel.w > 4 && cropSel.h > 4) {
+      const scaleX = img.crop.sw / img.w;
+      const scaleY = img.crop.sh / img.h;
+      const newCrop = {
+        sx: img.crop.sx + cropSel.x * scaleX,
+        sy: img.crop.sy + cropSel.y * scaleY,
+        sw: cropSel.w * scaleX,
+        sh: cropSel.h * scaleY
+      };
+      const centerLocal = { x: -img.w / 2 + cropSel.x + cropSel.w / 2, y: -img.h / 2 + cropSel.y + cropSel.h / 2 };
+      const centerWorld = toWorld(centerLocal.x, centerLocal.y, img.cx, img.cy, img.angle);
+      img.crop = newCrop;
+      img.w = cropSel.w;
+      img.h = cropSel.h;
+      img.cx = centerWorld.x;
+      img.cy = centerWorld.y;
+    }
+    cropMode = false;
+    cropSel = null;
+    updateContextualControls();
+    renderMain();
+    renderOverlay();
+  }
+
+  function cancelCropMode() {
+    cropMode = false;
+    cropSel = null;
+    updateContextualControls();
+    renderOverlay();
+  }
+
+  function deleteSelectedImage() {
+    const idx = shapes.findIndex(s => s.type === 'image' && s.id === selectedImageId);
+    if (idx >= 0) shapes.splice(idx, 1);
+    selectedImageId = null;
+    cropMode = false;
+    cropSel = null;
+    updateContextualControls();
+    renderMain();
+    renderOverlay();
+  }
+
+  function loadImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const { w: canvasW, h: canvasH } = getCanvasSize();
+        const maxDim = Math.min(canvasW, canvasH) * 0.6;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const shape = {
+          type: 'image', id: nextImageId++, img,
+          cx: canvasW / 2, cy: canvasH / 2,
+          w: img.width * scale, h: img.height * scale, angle: 0,
+          crop: { sx: 0, sy: 0, sw: img.width, sh: img.height }
+        };
+        shapes.push(shape);
+        selectedImageId = shape.id;
+        cropMode = false;
+        cropSel = null;
+        updateContextualControls();
+        renderMain();
+        renderOverlay();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   // ---------- overlay render ----------
 
   let livePreview = null;
@@ -302,6 +613,8 @@
 
     if (activeTool === 'ruler') drawRuler();
     if (activeTool === 'protractor') drawProtractor();
+    if (activeTool === 'compass') drawCompass();
+    if (activeTool === 'image') drawImageHandles();
 
     if (livePreview) {
       octx.save();
@@ -345,7 +658,27 @@
 
   function clearAll() {
     shapes.length = 0;
+    selectedImageId = null;
+    cropMode = false;
+    cropSel = null;
+    updateContextualControls();
     renderMain();
+  }
+
+  // ---------- contextual toolbar ----------
+
+  function updateContextualControls() {
+    compassContextGroup.classList.toggle('visible', activeTool === 'compass');
+    lockBtnLabel.textContent = compass.locked ? 'Unlock' : 'Lock';
+    lockBtn.classList.toggle('active', compass.locked);
+
+    const showImageTools = activeTool === 'image';
+    imageContextGroup.classList.toggle('visible', showImageTools);
+    const hasSelection = showImageTools && !!selectedImageId;
+    cropBtn.classList.toggle('visible', hasSelection);
+    deleteImageBtn.classList.toggle('visible', hasSelection);
+    cropBtnLabel.textContent = cropMode ? 'Apply Crop' : 'Crop';
+    cropBtn.classList.toggle('active', cropMode);
   }
 
   // ---------- pointer interaction ----------
@@ -354,8 +687,6 @@
     const rect = overlayCanvas.getBoundingClientRect();
     return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
   }
-
-  let sweepState = null;
 
   function onPointerDown(evt) {
     overlayCanvas.setPointerCapture(evt.pointerId);
@@ -407,11 +738,67 @@
     }
 
     if (activeTool === 'compass') {
-      drag.mode = 'compass';
-      drag.cx = x;
-      drag.cy = y;
-      sweepState = { startAngle: null, lastAngle: null, swept: 0 };
-      livePreview = { type: 'circle', cx: x, cy: y, r: 0, color, width: strokeWidth };
+      const hit = hitTestCompass(x, y);
+      if (!hit) return;
+      drag.mode = hit.mode;
+      drag.lastX = x;
+      drag.lastY = y;
+      if (hit.mode === 'draw-compass') {
+        sweepState = { startAngle: compass.angle, lastAngle: compass.angle, swept: 0 };
+        livePreview = { type: 'arc', cx: compass.x, cy: compass.y, r: compass.radius, start: compass.angle, end: compass.angle, anticlockwise: false, color, width: strokeWidth };
+      }
+      return;
+    }
+
+    if (activeTool === 'image') {
+      const hit = hitTestImages(x, y);
+      if (!hit) {
+        selectedImageId = null;
+        cropMode = false;
+        cropSel = null;
+        updateContextualControls();
+        renderOverlay();
+        return;
+      }
+      if (hit.mode === 'move-image') {
+        selectedImageId = hit.img.id;
+        cropMode = false;
+        cropSel = null;
+        drag.mode = 'move-image';
+        drag.target = hit.img;
+        drag.lastX = x;
+        drag.lastY = y;
+        updateContextualControls();
+        renderOverlay();
+        return;
+      }
+      if (hit.mode === 'rotate-image') {
+        drag.mode = 'rotate-image';
+        drag.target = hit.img;
+        return;
+      }
+      if (hit.mode.startsWith('resize-')) {
+        const cornerKey = hit.mode.slice(7);
+        const anchor = imageCornersWorld(hit.img).find(c => c.key === OPPOSITE_CORNER[cornerKey]);
+        drag.mode = 'resize-image';
+        drag.target = hit.img;
+        drag.anchor = { x: anchor.x, y: anchor.y };
+        drag.angle = hit.img.angle;
+        return;
+      }
+      if (hit.mode.startsWith('crop-')) {
+        const cornerKey = hit.mode.slice(5);
+        const points = {
+          tl: { x: cropSel.x, y: cropSel.y },
+          tr: { x: cropSel.x + cropSel.w, y: cropSel.y },
+          br: { x: cropSel.x + cropSel.w, y: cropSel.y + cropSel.h },
+          bl: { x: cropSel.x, y: cropSel.y + cropSel.h }
+        };
+        drag.mode = 'crop-image';
+        drag.target = hit.img;
+        drag.cropAnchor = points[OPPOSITE_CORNER[cornerKey]];
+        return;
+      }
     }
   }
 
@@ -484,24 +871,89 @@
       return;
     }
 
-    if (drag.mode === 'compass') {
-      const r = dist(drag.cx, drag.cy, x, y);
-      const angle = Math.atan2(y - drag.cy, x - drag.cx);
-      if (r > 5) {
-        if (sweepState.startAngle === null) {
-          sweepState.startAngle = angle;
-          sweepState.lastAngle = angle;
-        } else {
-          let delta = angle - sweepState.lastAngle;
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-          sweepState.swept += delta;
-          sweepState.lastAngle = angle;
-        }
-      }
-      livePreview = { type: 'circle', cx: drag.cx, cy: drag.cy, r, color, width: strokeWidth,
-        label: `r = ${(r / PX_PER_CM).toFixed(1)} cm`, labelX: drag.cx + r + 8, labelY: drag.cy };
+    if (drag.mode === 'move-compass') {
+      const dx = x - drag.lastX, dy = y - drag.lastY;
+      compass.x += dx; compass.y += dy;
+      drag.lastX = x; drag.lastY = y;
       renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'adjust-radius') {
+      compass.radius = Math.max(10, dist(compass.x, compass.y, x, y));
+      compass.angle = Math.atan2(y - compass.y, x - compass.x);
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'aim-pencil') {
+      compass.angle = Math.atan2(y - compass.y, x - compass.x);
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'draw-compass') {
+      const angle = Math.atan2(y - compass.y, x - compass.x);
+      let delta = angle - sweepState.lastAngle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      sweepState.swept += delta;
+      sweepState.lastAngle = angle;
+      compass.angle = angle;
+      const capped = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, sweepState.swept));
+      livePreview = {
+        type: 'arc', cx: compass.x, cy: compass.y, r: compass.radius,
+        start: sweepState.startAngle, end: sweepState.startAngle + capped, anticlockwise: capped < 0,
+        color, width: strokeWidth,
+        label: `${Math.abs((capped * 180) / Math.PI).toFixed(0)}°`, labelX: x + 10, labelY: y - 10
+      };
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'move-image') {
+      const dx = x - drag.lastX, dy = y - drag.lastY;
+      drag.target.cx += dx; drag.target.cy += dy;
+      drag.lastX = x; drag.lastY = y;
+      renderMain();
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'rotate-image') {
+      const img = drag.target;
+      img.angle = Math.atan2(y - img.cy, x - img.cx) - Math.PI / 2;
+      renderMain();
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'resize-image') {
+      const img = drag.target;
+      const local = toLocal(x, y, drag.anchor.x, drag.anchor.y, drag.angle);
+      const newW = Math.max(20, Math.abs(local.x));
+      const newH = Math.max(20, Math.abs(local.y));
+      const centerWorld = toWorld(local.x / 2, local.y / 2, drag.anchor.x, drag.anchor.y, drag.angle);
+      img.w = newW; img.h = newH; img.cx = centerWorld.x; img.cy = centerWorld.y;
+      renderMain();
+      renderOverlay();
+      return;
+    }
+
+    if (drag.mode === 'crop-image') {
+      const img = drag.target;
+      const local = toLocal(x, y, img.cx, img.cy, img.angle);
+      let lx = Math.max(0, Math.min(img.w, local.x + img.w / 2));
+      let ly = Math.max(0, Math.min(img.h, local.y + img.h / 2));
+      const anchor = drag.cropAnchor;
+      const minSize = 10;
+      if (Math.abs(lx - anchor.x) < minSize) lx = anchor.x + (lx >= anchor.x ? minSize : -minSize);
+      if (Math.abs(ly - anchor.y) < minSize) ly = anchor.y + (ly >= anchor.y ? minSize : -minSize);
+      lx = Math.max(0, Math.min(img.w, lx));
+      ly = Math.max(0, Math.min(img.h, ly));
+      cropSel = { x: Math.min(anchor.x, lx), y: Math.min(anchor.y, ly), w: Math.abs(lx - anchor.x), h: Math.abs(ly - anchor.y) };
+      renderOverlay();
+      return;
     }
   }
 
@@ -531,19 +983,16 @@
       }
     }
 
-    if (drag.mode === 'compass') {
-      const r = dist(drag.cx, drag.cy, x, y);
-      if (r > 3) {
-        const sweptDeg = sweepState ? Math.abs((sweepState.swept * 180) / Math.PI) : 0;
-        if (sweptDeg < 20 || sweepState.startAngle === null) {
-          pushShape({ type: 'circle', cx: drag.cx, cy: drag.cy, r, color, width: strokeWidth });
+    if (drag.mode === 'draw-compass') {
+      const sweptDeg = sweepState ? Math.abs((sweepState.swept * 180) / Math.PI) : 0;
+      if (sweptDeg > 1) {
+        if (sweptDeg >= 359.5) {
+          pushShape({ type: 'circle', cx: compass.x, cy: compass.y, r: compass.radius, color, width: strokeWidth });
         } else {
-          const anticlockwise = sweepState.swept < 0;
+          const capped = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, sweepState.swept));
           pushShape({
-            type: 'arc', cx: drag.cx, cy: drag.cy, r,
-            start: sweepState.startAngle,
-            end: sweepState.startAngle + sweepState.swept,
-            anticlockwise,
+            type: 'arc', cx: compass.x, cy: compass.y, r: compass.radius,
+            start: sweepState.startAngle, end: sweepState.startAngle + capped, anticlockwise: capped < 0,
             color, width: strokeWidth
           });
         }
@@ -552,6 +1001,7 @@
     }
 
     drag.mode = null;
+    drag.target = null;
     livePreview = null;
     renderOverlay();
   }
@@ -571,6 +1021,7 @@
       drag.mode = null;
       livePreview = null;
       setHint(activeTool);
+      updateContextualControls();
       renderOverlay();
     });
   });
@@ -586,14 +1037,42 @@
     if (confirm('Clear the entire canvas? This cannot be undone.')) clearAll();
   });
 
+  lockBtn.addEventListener('click', () => {
+    compass.locked = !compass.locked;
+    updateContextualControls();
+    renderOverlay();
+  });
+
+  addImageBtn.addEventListener('click', () => imageFileInput.click());
+  imageFileInput.addEventListener('change', (evt) => {
+    const file = evt.target.files[0];
+    if (file) loadImageFile(file);
+    evt.target.value = '';
+  });
+  cropBtn.addEventListener('click', () => {
+    if (cropMode) applyCropMode();
+    else enterCropMode();
+  });
+  deleteImageBtn.addEventListener('click', deleteSelectedImage);
+
   window.addEventListener('keydown', (evt) => {
     if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'z') {
       evt.preventDefault();
       undo();
+      return;
+    }
+    if (evt.key === 'Escape' && cropMode) {
+      cancelCropMode();
+      return;
+    }
+    if ((evt.key === 'Delete' || evt.key === 'Backspace') && activeTool === 'image' && selectedImageId) {
+      evt.preventDefault();
+      deleteSelectedImage();
     }
   });
 
   window.addEventListener('resize', resizeCanvases);
   resizeCanvases();
   setHint(activeTool);
+  updateContextualControls();
 })();

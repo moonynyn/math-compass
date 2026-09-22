@@ -77,12 +77,12 @@ html, body {
   border-color: var(--accent);
 }
 
-#action-controls button {
+.icon-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 60px;
+  width: 66px;
   padding: 6px 4px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -92,8 +92,18 @@ html, body {
   font-size: 11px;
 }
 
-#action-controls svg { width: 18px; height: 18px; fill: currentColor; }
-#action-controls button:hover { background: #f1f5f9; color: var(--text); }
+.icon-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.icon-btn:hover { background: #f1f5f9; color: var(--text); }
+.icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+#compass-context, #image-context { display: none; }
+#compass-context.visible, #image-context.visible { display: flex; }
+#cropBtn, #deleteImageBtn { display: none; }
+#cropBtn.visible, #deleteImageBtn.visible { display: flex; }
 
 .control {
   display: flex;
