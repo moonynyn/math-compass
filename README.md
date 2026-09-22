@@ -18,10 +18,11 @@ server (e.g. `python3 -m http.server`).
   the radius. Once locked, drag the pencil to aim without marking anything,
   then drag the top handle to swing it and ink the arc it sweeps (release
   after a near-full turn for a complete circle).
-- **Image** — click **Add Image** to place a photo on the canvas. Drag its
-  body to move it, the corner handles to resize it, the top handle to rotate
-  it, and **Crop** to trim it to a rectangle. Any other tool draws right on
-  top of it. Select an image and press **Delete** (or the Delete/Backspace
-  key) to remove it.
+- **Image** — click **Add Image**, drag an image file onto the canvas, or
+  paste (Ctrl/Cmd+V) a copied screenshot straight from the clipboard. Drag
+  its body to move it, the corner handles to resize it, the top handle to
+  rotate it, and **Crop** to trim it to a rectangle. Any other tool draws
+  right on top of it. Select an image and press **Delete** (or the
+  Delete/Backspace key) to remove it.
 
 Undo with the toolbar button or Ctrl/Cmd+Z; Clear wipes the canvas.

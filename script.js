@@ -51,7 +51,7 @@
     ruler: 'Ruler — drag the body to move it, the round handle to rotate it, and drag along an edge to draw a snapped line.',
     protractor: 'Protractor — drag the body to move it, the handle to rotate it, then drag from the center point to draw a ray and read the angle.',
     compass: 'Compass — drag the needle to move it, drag the pencil tip to set the opening, then press Lock. Once locked, drag the pencil to aim, and drag the top handle to swing an arc and mark the paper.',
-    image: 'Image — click "Add Image" to place a photo, drag it to move, use the corner handles to resize, the top handle to rotate, or Crop to trim it.'
+    image: 'Image — click "Add Image", drag a photo in, or paste (Ctrl/Cmd+V) a screenshot. Drag to move, use the corner handles to resize, the top handle to rotate, or Crop to trim it.'
   };
 
   function setHint(tool) {
@@ -576,7 +576,8 @@
     renderOverlay();
   }
 
-  function loadImageFile(file) {
+  function loadImageFile(file, dropPos) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
@@ -586,7 +587,8 @@
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         const shape = {
           type: 'image', id: nextImageId++, img,
-          cx: canvasW / 2, cy: canvasH / 2,
+          cx: dropPos ? dropPos.x : canvasW / 2,
+          cy: dropPos ? dropPos.y : canvasH / 2,
           w: img.width * scale, h: img.height * scale, angle: 0,
           crop: { sx: 0, sy: 0, sw: img.width, sh: img.height }
         };
@@ -594,6 +596,7 @@
         selectedImageId = shape.id;
         cropMode = false;
         cropSel = null;
+        setActiveTool('image');
         updateContextualControls();
         renderMain();
         renderOverlay();
@@ -1013,17 +1016,18 @@
 
   // ---------- toolbar wiring ----------
 
+  function setActiveTool(tool) {
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+    activeTool = tool;
+    drag.mode = null;
+    livePreview = null;
+    setHint(activeTool);
+    updateContextualControls();
+    renderOverlay();
+  }
+
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeTool = btn.dataset.tool;
-      drag.mode = null;
-      livePreview = null;
-      setHint(activeTool);
-      updateContextualControls();
-      renderOverlay();
-    });
+    btn.addEventListener('click', () => setActiveTool(btn.dataset.tool));
   });
 
   colorPicker.addEventListener('input', () => { color = colorPicker.value; });
@@ -1069,6 +1073,48 @@
       evt.preventDefault();
       deleteSelectedImage();
     }
+  });
+
+  // ---------- drag-and-drop and paste images (e.g. screenshots) ----------
+
+  let dragDepth = 0;
+
+  function fileFromDataTransfer(dt) {
+    if (!dt || !dt.files || !dt.files.length) return null;
+    return Array.from(dt.files).find(f => f.type.startsWith('image/')) || null;
+  }
+
+  container.addEventListener('dragenter', (evt) => {
+    if (!fileFromDataTransfer(evt.dataTransfer) && !(evt.dataTransfer && Array.from(evt.dataTransfer.items || []).some(i => i.kind === 'file'))) return;
+    evt.preventDefault();
+    dragDepth++;
+    container.classList.add('drag-over');
+  });
+  container.addEventListener('dragover', (evt) => {
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'copy';
+  });
+  container.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) container.classList.remove('drag-over');
+  });
+  container.addEventListener('drop', (evt) => {
+    evt.preventDefault();
+    dragDepth = 0;
+    container.classList.remove('drag-over');
+    const file = fileFromDataTransfer(evt.dataTransfer);
+    if (!file) return;
+    const rect = container.getBoundingClientRect();
+    loadImageFile(file, { x: evt.clientX - rect.left, y: evt.clientY - rect.top });
+  });
+
+  window.addEventListener('paste', (evt) => {
+    const items = evt.clipboardData && evt.clipboardData.items;
+    if (!items) return;
+    const item = Array.from(items).find(i => i.kind === 'file' && i.type.startsWith('image/'));
+    if (!item) return;
+    evt.preventDefault();
+    loadImageFile(item.getAsFile());
   });
 
   window.addEventListener('resize', resizeCanvases);
